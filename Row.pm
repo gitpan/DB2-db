@@ -3,7 +3,7 @@ package DB2::Row;
 use diagnostics;
 use Carp;
 
-our $VERSION = '0.17';
+our $VERSION = '0.18';
 
 =head1 NAME
 
@@ -299,6 +299,7 @@ sub column #($$;$)
 
                 # if it's not what we started with, keep track of it.
                 if (not exists $self->{ORIGVALUE}{$name} or
+                    (not defined $val and defined $self->{ORIGVALUE}{$name}) or
                     $val ne $self->{ORIGVALUE}{$name})
                 {
                     $self->{modified}{$name} = 1;
@@ -333,6 +334,30 @@ sub column #($$;$)
     croak "Can't do '$name' in $type";
     undef;
 
+}
+
+=item C<as_hash>
+
+This is intended to help template users by returning the current row
+as a hash/hashref.  For example, if you have a set of rows, @rows,
+you can give them to HTML::Template as:
+
+    loop => [ map { $_->as_hash(1) } @rows ],
+
+The optional parameter will force a scalar return (hashref) despite an
+array context, such as the map context above.
+
+=cut
+
+sub as_hash
+{
+    my $self = shift;
+    my $force_scalar = shift;
+
+    my %ret = map {
+        $_ => $self->column($_);
+    } $self->_table->column_list();
+    not $force_scalar && wantarray ? %ret : \%ret;
 }
 
 =item C<find>
@@ -427,9 +452,35 @@ sub SELECT
     $self->_table->SELECT(@_);
 }
 
+=item C<dbi_err>
+
+=item C<dbi_errstr>
+
+=item C<dbi_state>
+
+The relevant variable from DBI for the last problem occurring on this
+table.
+
+=cut
+
 sub dbi_err    { shift->_table->dbi_err }
 sub dbi_errstr { shift->_table->dbi_errstr }
 sub dbi_state  { shift->_table->dbi_state }
+
+=item Dump
+
+Dumps the current values of this row without any internal variables
+that Data::Dumper would follow.
+
+=cut
+
+sub Dump
+{
+    my $self = shift;
+    my @cols = $self->_table()->column_list();
+
+    ref $self . '=[' . join(',', map { "$_ => " . $self->column($_) } @cols) . ']';
+}
 
 =back
 
@@ -453,6 +504,5 @@ sub AUTOLOAD
 
     $self->column($name, @_);
 }
-
 
 1;

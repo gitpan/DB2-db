@@ -1,6 +1,6 @@
 #! perl -w
 
-use Test::More tests => 21;
+use Test::More tests => 23;
 
 use FindBin;
 use File::Spec;
@@ -20,7 +20,7 @@ ok($uid, "Instance probably exists");
 can_ok('My::db', 'new');
 
 SKIP: {
-    skip "No instance - can't do anything", 16 unless $uid;
+    skip "No instance - can't do anything", 18 unless $uid;
 
     my $db = My::db->new;
     ok($db, "create derived db object");
@@ -67,6 +67,12 @@ SKIP: {
     $row->prodname('One Dum Movie');
     $row->baseprice('1500');
     $row->save();
+
+    # test statement attributes.
+    eval "package My::Row; sub _prepare_attributes { { db2_txn_isolation => DBD::DB2::Constants::SQL_TXN_READ_UNCOMMITTED } }";
+    ok(!$@, "Overriding _prepare_attributes");
+    my $obj = $prod_tbl->find_id('000011');
+    is($obj ? $obj->baseprice() : 0, 1500, 'Price check at cash 3');
 
     $db->disconnect();
     # done testing!

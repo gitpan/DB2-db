@@ -16,3 +16,4 @@ samples/My/db.pm
 samples/mySample.pl
 t/001_basic.t
 t/003_my.t
+META.yml                                 Module meta-data (added by MakeMaker)

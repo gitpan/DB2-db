@@ -330,18 +330,30 @@ sub find_join
 
     my @cols = $self->column_list();
     my $prefix = "";
-    if ($_[0] and (
-                   $_[0] =~ /!!!\s+[Aa][Ss]\s+(\w+)/ or
-                   $_[0] =~ /$self->full_table_name()\s+[Aa][Ss]\s+(\w+)/ or
-                   $_[0] =~ /$self->table_name()\s+[Aa][Ss]\s+(\w+)/
+    my $tables = shift;
+    if (ref $tables and ref $tables eq 'ARRAY')
+    {
+        $tables = join ' ', @$tables;
+    }
+
+    if ($tables and (
+                     $tables =~ /!!!\s+[Aa][Ss]\s+(\w+)/ or
+                     $tables =~ /$self->full_table_name()\s+[Aa][Ss]\s+(\w+)/ or
+                     $tables =~ /$self->table_name()\s+[Aa][Ss]\s+(\w+)/
                   )
         )
     {
         $prefix = "$1.";
     }
 
-    my $ary_ref = $self->SELECT_join("distinct " . join(', ', map {$prefix . $_} $self->column_list),
-                                     @_);
+    my $ary_ref = $self->SELECT_join(
+                                     {
+                                         forreadonly => 1,
+                                         distinct => 1,
+                                         prepare_attributes => $self->_prepare_attributes('SELECT'),
+                                     },
+                                     join(', ', map {$prefix . $_} $self->column_list),
+                                     $tables, @_);
 
     my @rc;
     foreach my $row (@$ary_ref)
@@ -368,9 +380,21 @@ sub find_join
     return \@rc;
 }
 
+=item C<_prepare_attributes>
+
+Internally used to set any prepare attributes.  Parameter says what
+type of prepare this is, although the list is not finalised yet.
+
+=cut
+
+sub _prepare_attributes
+{
+    {}
+}
+
 =item C<_prepare>
 
-Internally used to cache statements (future).  This may change to
+Internally used to cache statements.  This may change to
 C<prepare> if it is found to be useful.
 
 =cut
@@ -379,9 +403,17 @@ sub _prepare
 {
     my $self = shift;
     my $stmt = shift;
+    my $attr = shift;
 
-    print "$stmt\n" if $DB2::db::debug;
-    my $sth = $self->_connection->prepare($stmt);
+    if ($DB2::db::debug)
+    {
+        if ($DB2::db::debug + 0 > 1)
+        {
+            require Carp;
+            Carp::cluck "$stmt\n";
+        }
+    }
+    my $sth = $self->_connection->prepare_cached($stmt, $attr);
 
     croak "Can't prepare [$stmt]: " . $self->_connection->errstr() unless $sth;
 
@@ -433,6 +465,7 @@ sub _update_db
 {
     my $self = shift;
     my $obj  = shift;
+    my $prep_attr = shift;
 
     # it's an update.
     my $stmt = "UPDATE " . $self->full_table_name . " SET ";
@@ -454,7 +487,7 @@ sub _update_db
         $stmt .= join(", ", @sets);
         $stmt .= " WHERE " . $self->primaryColumn . " IN ?";
         push @newVal, $obj->{CONFIG}{$prim_key};
-        my $sth = $self->_prepare($stmt);
+        my $sth = $self->_prepare($stmt, $prep_attr);
 
         #print STDERR "stmt = $stmt -- ", join @newVal, "\n";
 
@@ -470,6 +503,7 @@ sub _insert_into_db
 {
     my $self = shift;
     my $obj  = shift;
+    my $prep_attr = shift;
 
     my @cols = grep {
         not $self->get_column($_, 'NOCREATE') and
@@ -480,10 +514,19 @@ sub _insert_into_db
         join(', ', @cols) .
         ") VALUES(" . join(', ', map {'?'} @cols) . ")";
 
-    print STDERR "$stmt\n" if $DB2::db::debug;
+    if ($DB2::db::debug)
+    {
+        if ($DB2::db::debug + 0 > 1)
+        {
+            require Carp;
+            Carp::cluck "$stmt";
+        }
+    }
 
-    my $sth = $self->_prepare($stmt);
-    $self->_execute($sth, map { $obj->{CONFIG}{$_} } @cols);
+    my $sth = $self->_prepare($stmt, $prep_attr);
+    my $rc = $self->_execute($sth, map { $obj->{CONFIG}{$_} } @cols);
+    $sth->finish();
+    $rc;
 }
 
 =item C<save>
@@ -498,6 +541,7 @@ sub save
 {
     my $self = shift;
     my $obj  = shift;
+    my $prep_attr = shift;
 
     unless (ref $obj and $obj->isa("DB2::Row"))
     {
@@ -508,13 +552,13 @@ sub save
     {
         if ($self->primaryColumn)
         {
-            $self->_update_db($obj);
+            $self->_update_db($obj, $prep_attr);
         }
     }
     # else it's new
     else
     {
-        $self->_insert_into_db($obj);
+        $self->_insert_into_db($obj, $prep_attr);
     }
 }
 
@@ -540,6 +584,7 @@ sub delete
 {
     my $self = shift;
     my $obj  = shift;
+    my $prep_attr = shift;
 
     unless (ref $obj and $obj->isa("DB2::Row"))
     {
@@ -548,7 +593,7 @@ sub delete
 
     if ($self->_already_exists_in_db($obj))
     {
-        $self->_delete_db($obj);
+        $self->_delete_db($obj, $prep_attr);
     }
 }
 
@@ -556,6 +601,7 @@ sub _delete_db
 {
     my $self = shift;
     my $obj  = shift;
+    my $prep_attr = shift;
 
     my $primcol = $obj->primaryColumn;
     if ($primcol)
@@ -563,31 +609,120 @@ sub _delete_db
         my $stmt = 'DELETE FROM ' . $self->full_table_name . ' WHERE ' .
             $primcol . ' IN ?';
 
-        my $sth = $self->_prepare($stmt);
+        my $sth = $self->_prepare($stmt, $prep_attr);
         $self->_execute($sth, $obj->column($primcol));
     }
 }
 
 =item C<SELECT>
 
-Wrapper around performing an SQL SELECT statement.  The first argument
-is the columns you want, the next is the WHERE condition (undef if
-none), and the rest are the bind values.  Will always return an array
-ref.
+Wrapper around performing an SQL SELECT statement.
+
+Parameters:
+
+=over 4
+
+=item *
+
+B<Optional>: Hashref of options.  Options may include:
+
+=over 4
+
+=item distinct
+
+If true, the DISTINCT keyword will be added prior to the column names
+resulting in a return set where each row is unique.  Somewhat useless if
+the columns are all columns or include UNIQUE columns.
+
+=item forreadonly
+
+Set the query up as a "FOR READ ONLY" statement (potential performance
+enhancement).
+
+=item tables
+
+This is either a string with the table names, or an array ref of table names.
+Used in joins.
+
+=item prepare_attributes
+
+This is used in the prepare statement as extra options - see DBD::DB2
+under the heading C<Statement Attributes>.  The value here must be a
+hashref ready to be passed in to the prepare function.
+
+=back
+
+=item *
+
+Arrayref of columns I<or> string of columns, seperated
+by commas.  For example:
+
+    [ qw(col1 col2 col3) ]
+
+or
+    'col1,col2,col3'
+
+=item *
+
+B<Optional>: Where-clause for SQL query.
+
+=item *
+
+B<Optional>: Bind values for the where-clause - this is not an arrayref
+but the actual elements.
+
+=back
+
+For example:
+
+    $table-E<gt>SELECT({distinct=>1},[qw(col1 col2)],
+                       'col3 in (?,?,?)', 'blah', 'burg', 'frob');
+
+This will result in an SQL statement of:
+
+    SELECT DISTINCT col1, col2 FROM myschema.mytable WHERE col3 in (?,?,?)
+
+And ('blah', 'burg', 'frob') will be bound to the ?'s.
 
 =cut
 
 sub SELECT
 {
     my $self = shift;
+    my $opts = ref $_[0] eq 'HASH' ? shift : {};
     my $cols = shift;
     my $where = shift;
     my @params = @_;
 
-    my $stmt = 'SELECT ' . $cols . ' FROM ' . $self->full_table_name;
-    $stmt .= ' WHERE ' . $self->_replace_bangs($where) if $where;
+    if (ref $cols and ref $cols eq 'ARRAY')
+    {
+        $cols = join ', ', @$cols;
+    }
 
-    my $sth = $self->_prepare($stmt);
+    my $select_modifier = '';
+    my $table = $self->full_table_name();
+
+    # is this a join?
+    if (exists $opts->{tables})
+    {
+        $table = $opts->{tables};
+        if (ref $table and ref $table eq 'ARRAY')
+        {
+            $table = join ' ', @$table;
+        }
+        $self->_replace_bangs($table);
+    }
+
+    # distinct?
+    $select_modifier .= 'DISTINCT ' if $opts->{distinct};
+
+    my $stmt = 'SELECT ' . $select_modifier . $cols . ' FROM ' . $table;
+    $stmt .= ' WHERE ' . $self->_replace_bangs($where) if $where;
+    $stmt .= ' FOR READ ONLY' if $opts->{forreadonly};
+
+    my %prep_attr = exists $opts->{prepare_attributes} ? %{$opts->{prepare_attributes}} : ();
+
+    my $sth = $self->_prepare($stmt, \%prep_attr);
     $self->_execute($sth, @params);
     return $sth->fetchall_arrayref();
 }
@@ -602,16 +737,18 @@ returned.  Otherwise, it's exactly the same as C<SELECT> above
 sub SELECT_distinct
 {
     my $self = shift;
+    my $opts = {};
     my $cols = shift;
-    my $where = shift;
-    my @params = @_;
 
-    my $stmt = 'SELECT DISTINCT ' . $cols . ' FROM ' . $self->full_table_name;
-    $stmt .= ' WHERE ' . $self->_replace_bangs($where) if $where;
+    if (ref $cols and ref $cols eq 'HASH')
+    {
+        $opts = $cols;
+        $cols = shift;
+    }
 
-    my $sth = $self->_prepare($stmt);
-    $self->_execute($sth, @params);
-    return $sth->fetchall_arrayref();
+    $opts->{distinct}++;
+
+    return $self->SELECT($opts, $cols, @_);
 }
 
 =item C<SELECT_join>
@@ -637,18 +774,17 @@ sub _replace_bangs
 sub SELECT_join
 {
     my $self   = shift;
-    my $cols   = shift;
-    my $tables = shift;
-    my $where  = shift;
+    my $opts = {};
+    my $cols = shift;
 
-    $self->_replace_bangs($tables);
+    if (ref $cols and ref $cols eq 'HASH')
+    {
+        $opts = $cols;
+        $cols = shift;
+    }
 
-    my $stmt = 'SELECT ' . $cols . ' FROM ' . $tables;
-    $stmt .= ' WHERE ' . $self->_replace_bangs($where) if $where;
-
-    my $sth = $self->_prepare($stmt);
-    $self->_execute($sth, @_);
-    return $sth->fetchall_arrayref();
+    $opts->{tables} = shift;
+    return $self->SELECT($opts, $cols, @_);
 }
 
 =item C<table_name>
@@ -852,7 +988,7 @@ sub create_table_get_current
     @row;
 }
 # INTERNAL - common code between CREATE and ALTER - column definitions
-sub create_table_column_definition
+sub _create_table_column_definition
 {
     my $self = shift;
     my $column = shift;
@@ -860,6 +996,7 @@ sub create_table_column_definition
     $tbl   .= uc $column->{TYPE} eq 'BOOL' ? 'CHAR' : $column->{TYPE};
     $tbl   .= ' (' . $column->{LENGTH} . ')' if exists $column->{LENGTH};
     $tbl   .= ' ' . $column->{OPTS} if $column->{OPTS};
+    $tbl   .= ' NOT NULL' if $column->{PRIMARY} and (not $column->{OPTS} or $column->{OPTS} !~ /NOT NULL/);
     $tbl   .= ' CHECK (' . $column->{COLUMN} . q[ in ('Y','N'))] if uc $column->{TYPE} eq 'BOOL';
     if (exists $column->{GENERATEDIDENTITY})
     {
@@ -892,7 +1029,7 @@ sub create_table
         foreach my $f ( $self->column_list )
         {
             my $column = $self->get_column($f);
-            push @columns, $self->create_table_column_definition($column);
+            push @columns, $self->_create_table_column_definition($column);
             if (exists $column->{CONSTRAINT})
             {
                 push @constraints, map { 
@@ -933,7 +1070,7 @@ sub create_table
             foreach my $add (@add)
             {
                 my $column = $self->get_column($add);
-                $alter .= ' ADD ' . $self->create_table_column_definition($column);
+                $alter .= ' ADD ' . $self->_create_table_column_definition($column);
             }
             print $alter, "\n";
             $dbh->do($alter);

@@ -1,0 +1,11 @@
+# http://module-build.sourceforge.net/META-spec.html
+#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
+name:         DB2-db
+version:      0.19
+version_from: db.pm
+installdirs:  site
+requires:
+    DBD::DB2:                      0.76
+
+distribution_type: module
+generated_by: ExtUtils::MakeMaker version 6.17

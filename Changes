@@ -46,3 +46,24 @@ Revision history for Perl extension DB2.
 
 0.17
         + Added LICENSE file.  Woops.
+
+0.18
+        + Reworked SELECT to be a more general function.
+          + Added ability to pass in columns as array ref
+          + Added ability to pass in extra options
+            + Added FOR READ ONLY clause, made it the default for find*
+              functions
+          - Obsoleted SELECT_join and SELECT_distinct as they can both
+            be done via SELECT (simultaneously, even!)
+          + Added statement attributes
+        + Slight speed-up to DB2::db::get_row_type_for_table by converting
+          eval STR to eval BLOCK.
+        + Added DB2::Row::as_hash for *::Template users
+
+0.19
+        + Allowed table types to be pre-loaded - if you don't want to put
+          the table package into its own module, you'll need to use/require
+          it first, and then DB2::db::get_table will just use it.
+        + Setting $DB2::db::debug to greater than 1 will now Carp::cluck
+          the SQL statement about to be prepared so you can see the context
+          of any DBD::DB2 error messages.

@@ -5,7 +5,7 @@ use strict;
 use DBI;
 use Carp;
 
-our $VERSION = '0.17';
+our $VERSION = '0.19';
 
 my %localDB;
 our $debug = exists $ENV{DB2_db_debug};
@@ -389,10 +389,18 @@ sub get_row_type_for_table
     no strict 'refs';
     unless ($row_type and exists ${"${row_type}::ISA"}[0])
     {
-        eval "package __PACKAGE__::_firesafe; require $row_type" if $row_type;
+        # If the row-type is given, try loading it.  Rather than using
+        # eval STR to eval "require $row_pm", we do it ourselves.  This
+        # is slightly faster (Benchmark shows about 20% faster).
+        if ($row_type)
+        {
+            (my $row_pm = $row_type) =~ s.::./.g;
+            $row_pm .= '.pm';
+            eval { require $row_pm };
+        }
 
         # if the row type doesn't exist, we'll just create it ourselves.
-        if ($@)
+        if (not $row_type or $@)
         {
             my $table = $self->get_table($table_type);
             my $base_type = $table->get_base_row_type();
@@ -425,11 +433,11 @@ sub _guess_table
     $tbl =~ s./+.::.g;
     $tbl =~ s.:::+.::.g;
 
-    my $tbl_to_rows = $self->_get_tables_to_rows;
+    # "normal" cases.
+    return $tbl if exists $self->{TABLES}{$tbl};
 
-    # "normal" case.
-    return $tbl
-        if exists $self->{TABLES}{$tbl} or exists $tbl_to_rows->{$tbl};
+    my $tbl_to_rows = $self->_get_tables_to_rows;
+    return $tbl if exists $tbl_to_rows->{$tbl};
 
     # shortcuts.
     return $self->{SHORTNAME_TABLES}{$tbl} if exists $self->{SHORTNAME_TABLES}{$tbl};
@@ -459,8 +467,14 @@ sub get_table
     {
         unless (ref $self->{TABLES}{$table_type})
         {
-            eval "use $table_type";
-            croak $@ if $@;
+            no strict 'refs';
+            unless ($table_type and exists ${"${table_type}::ISA"}[0])
+            {
+                (my $table_pm = $table_type) =~ s.::./.g;
+                $table_pm .= '.pm';
+                eval { require $table_pm };
+                croak $@ if $@;
+            }
             $self->{TABLES}{$table_type} = $table_type->new($self);
         }
         $self->{TABLES}{$table_type}
@@ -535,8 +549,11 @@ needed).
 sub disconnect
 {
     my $self = shift;
-    $self->{dbh}->commit unless $self->is_autocommit;
-    $self->{dbh}->disconnect;
+    if ($self and $self->{dbh})
+    {
+        $self->{dbh}->commit unless $self->is_autocommit;
+        $self->{dbh}->disconnect;
+    }
     delete $self->{dbh};
 }
 
@@ -564,7 +581,7 @@ sub create_db
     unless ($self->{quiet})
     {
         print '*' x 50, "\n";
-        print ' ' x 20, "setting up ", $self->db_name, "\n";
+        print ' ' x 15, "setting up ", $self->db_name, "\n";
         print '*' x 50, "\n";
     }
 
