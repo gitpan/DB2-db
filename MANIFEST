@@ -1,0 +1,17 @@
+Changes
+MANIFEST			This list of files
+Makefile.PL
+README
+Row.pm
+TODO
+Table.pm
+db.pm
+samples/My/Employee.pm
+samples/My/EmployeeR.pm
+samples/My/Product.pm
+samples/My/Row.pm
+samples/My/Table.pm
+samples/My/db.pm
+samples/mySample.pl
+t/001_basic.t
+t/003_my.t

@@ -1,0 +1,46 @@
+Revision history for Perl extension DB2.
+
+0.10
+	* Original version: a massive rewrite from the three or four
+	  previous frameworks, first time prepared for possible
+          redistribution
+
+0.11
+        ! Added significant (read: non-trivial) test cases.  Found problems
+          while doing so.  Reorganised some code.
+
+0.12
+        + Added SELECT_join, find_join to DB2::Table
+        + Added case insensitive match for DB2::db::get_table
+
+0.13
+        ! API CHANGE
+	  - Obsoleted get_row_table_relationship
+          + Add add_row_table_relationship (to add more flexibility,
+            and save me some significant typing)
+
+0.14
+        + Added !!!/!<tbl>! support to CONSTRAINT and FOREIGNKEY
+          column attributes
+        + Improved return codes from DB2::Row->save() - should be able
+          to reliably use "true" as success.  Note that if nothing has
+          changed, it is considered "true" that it saved okay.
+        + Add default ROW setting for setup_row_table_relationship
+          Defaults to C<$tablename . "R"> .
+        + Added add_table as a simpler way to call
+          add_row_table_relationship (especially when using the new
+          default)
+
+0.15
+        + Added default row type - now you don't need to derive a type
+          from DB2::Row if you have nothing to overload.  Deriving from
+          DB2::Table remains since you always have to overload data_order.
+        + Added add_tables as a simpler way to call add_table, only if
+          using the defaults.
+        + Added set_default_package for adding tables in other packages.
+
+0.16
+        + Added get_base_row_type (was base_row_type in 0.15, but not
+          documented).
+        * Submitted to CPAN for the first time
+
