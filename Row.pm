@@ -3,7 +3,7 @@ package DB2::Row;
 use diagnostics;
 use Carp;
 
-our $VERSION = '0.18';
+our $VERSION = '0.20';
 
 =head1 NAME
 
@@ -174,7 +174,7 @@ sub time_to_timestamp
 
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($time);
     sprintf "%04d-%02d-%02d-%02d.%02d.%02d.%06d", 
-        ($year + 1900), $mon + 1, $mday, $hour, $min, $sec;
+        ($year + 1900), $mon + 1, $mday, $hour, $min, $sec, 0;
 }
 
 sub time_to_date

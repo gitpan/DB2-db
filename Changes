@@ -67,3 +67,7 @@ Revision history for Perl extension DB2.
         + Setting $DB2::db::debug to greater than 1 will now Carp::cluck
           the SQL statement about to be prepared so you can see the context
           of any DBD::DB2 error messages.
+
+0.20
+	+ Added table delete functions - delete_id, delete_where, allowing
+          for massive cleanups without having to retrieve the data first.

@@ -4,7 +4,7 @@ use diagnostics;
 use strict;
 use Carp;
 
-our $VERSION = '0.17';
+our $VERSION = '0.20';
 
 =head1 NAME
 
@@ -349,7 +349,7 @@ sub find_join
     my $ary_ref = $self->SELECT_join(
                                      {
                                          forreadonly => 1,
-                                         distinct => 1,
+                                         #distinct => 1,
                                          prepare_attributes => $self->_prepare_attributes('SELECT'),
                                      },
                                      join(', ', map {$prefix . $_} $self->column_list),
@@ -445,17 +445,25 @@ sub _already_exists_in_db
     my $obj  = shift;
 
     my $dbh = $self->_connection;
-    my $column = $self->primaryColumn;
     my $count = 0;
 
-    if ($column)
+    my $column = $self->primaryColumn;
+
+    if (ref $obj)
     {
-        my $objval = $obj->column($column);
+        if ($column)
+        {
+            $obj = $obj->column($column);
+        }
+    }
+
+    if ($obj and not ref $obj)
+    {
 
         #my $stmt = "SELECT COUNT(*) FROM " . $self->full_table_name .
         #    " WHERE $column IN ?";
         #$count = $dbh->selectrow_array($stmt, undef, $objval);
-        $count = $self->SELECT('COUNT(*)', "$column IN ?", $objval)->[0][0];
+        $count = $self->SELECT('COUNT(*)', "$column IN ?", $obj)->[0][0];
     }
 
     return $count;
@@ -597,13 +605,62 @@ sub delete
     }
 }
 
+=item delete_id
+
+Deletes a row based on its ID.  To delete multiple IDs simultaneously,
+simply pass in an array ref.
+
+=cut
+
+sub delete_id
+{
+    my $self = shift;
+    my $id   = shift;
+    my $prep_attr = shift;
+    if (ref $id ne 'ARRAY')
+    {
+        $id = [ $id ];
+    }
+
+    if ($self->primaryColumn() and $self->_already_exists_in_db($id))
+    {
+        my $stmt = 'DELETE FROM ' . $self->full_table_name() . ' WHERE ' .
+            $self->primaryColumn() . ' IN (' .
+            join(',', map { '?' } @$id) . ')';
+        my $sth  = $self->_prepare($stmt, $prep_attr);
+        $self->_execute($sth, @$id);
+    }
+}
+
+=item delete_where
+
+Deletes rows based on the given WHERE clause.  Further parameters are
+then bound to the DELETE statement.
+
+=cut
+
+sub delete_where
+{
+    my $self = shift;
+    my $opts = ref $_[0] eq 'HASH' ? shift : {};
+    my $where = shift;
+
+    my $stmt = 'DELETE FROM ' .
+        $self->full_table_name() . ' WHERE ' . $self->_replace_bangs($where);
+    my %prep_attr = exists $opts->{prepare_attributes} ? %{$opts->{prepare_attributes}} : ();
+    my $sth = $self->_prepare($stmt, \%prep_attr);
+    my $rc = $self->_execute($sth, @_);
+    $sth->finish();
+    $rc;
+}
+
 sub _delete_db
 {
     my $self = shift;
     my $obj  = shift;
     my $prep_attr = shift;
 
-    my $primcol = $obj->primaryColumn;
+    my $primcol = $self->primaryColumn;
     if ($primcol)
     {
         my $stmt = 'DELETE FROM ' . $self->full_table_name . ' WHERE ' .
@@ -611,6 +668,13 @@ sub _delete_db
 
         my $sth = $self->_prepare($stmt, $prep_attr);
         $self->_execute($sth, $obj->column($primcol));
+    }
+    else
+    {
+        my $stmt = 'DELETE FROM ' . $self->full_table_name . ' WHERE ' .
+            join (' AND ', map { "$_ IN ?" } $self->column_list());
+        my $sth = $self->_prepare($stmt, $prep_attr);
+        $self->_execute($sth, map { $obj->column($_) } $self->column_list());
     }
 }
 

@@ -5,7 +5,7 @@ use strict;
 use DBI;
 use Carp;
 
-our $VERSION = '0.19';
+our $VERSION = '0.20';
 
 my %localDB;
 our $debug = exists $ENV{DB2_db_debug};
