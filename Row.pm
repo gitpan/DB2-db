@@ -3,7 +3,7 @@ package DB2::Row;
 use diagnostics;
 use Carp;
 
-our $VERSION = '0.16';
+our $VERSION = '0.17';
 
 =head1 NAME
 
@@ -83,7 +83,9 @@ sub _table
 
 =item C<save>
 
-Save the current row.  Will happen automatically if it can.
+Save the current row.  Will happen automatically if it can.  Only
+really need to call this if you're interested in any generated identity
+column for a new row.
 
 =cut
 

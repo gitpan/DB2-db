@@ -44,3 +44,5 @@ Revision history for Perl extension DB2.
           documented).
         * Submitted to CPAN for the first time
 
+0.17
+        + Added LICENSE file.  Woops.
