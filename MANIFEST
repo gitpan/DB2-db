@@ -1,19 +1,13 @@
+Build.PL
 Changes
+db/TableCreator.pm
+lib/DB2/db.pm
+lib/DB2/Row.pm
+lib/DB2/Table.pm
 LICENSE
 MANIFEST			This list of files
-Makefile.PL
+META.yml
 README
-Row.pm
-TODO
-Table.pm
-db.pm
-samples/My/Employee.pm
-samples/My/EmployeeR.pm
-samples/My/Product.pm
-samples/My/Row.pm
-samples/My/Table.pm
-samples/My/db.pm
-samples/mySample.pl
 t/001_basic.t
 t/003_my.t
-META.yml                                 Module meta-data (added by MakeMaker)
+TODO

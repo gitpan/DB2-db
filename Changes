@@ -71,3 +71,12 @@ Revision history for Perl extension DB2.
 0.20
 	+ Added table delete functions - delete_id, delete_where, allowing
           for massive cleanups without having to retrieve the data first.
+
+0.21
+        ! Changed to Module::Build
+        ! API CHANGE
+          * All data_order tags were lowercased.  This is partly to follow
+            Perl conventions, and partly to follow XML conventions.
+            (Hoping to eventually add a DB2::TableFromXML or something)
+	+ Added pod-coverage tests (CPANTS game)
+

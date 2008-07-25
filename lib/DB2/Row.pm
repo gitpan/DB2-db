@@ -2,6 +2,8 @@ package DB2::Row;
 
 use diagnostics;
 use Carp;
+use strict;
+use warnings;
 
 our $VERSION = '0.20';
 
@@ -59,7 +61,7 @@ sub new
         next if exists $self->{CONFIG}{$p};
 
         my $col = $self->_table->get_column($p);
-        $self->{CONFIG}{$p} = $col->{DEFAULT} if exists $col->{DEFAULT};
+        $self->{CONFIG}{$p} = $col->{default} if exists $col->{default};
     }
 
     return $self;
@@ -177,6 +179,12 @@ sub time_to_timestamp
         ($year + 1900), $mon + 1, $mday, $hour, $min, $sec, 0;
 }
 
+=item C<time_to_date>
+
+Convert time to date.  Converts a C/perl time to DB2's DATE format.
+
+=cut
+
 sub time_to_date
 {
     my $self = shift;
@@ -274,7 +282,7 @@ sub column #($$;$)
     if (defined $self->_table->get_column($name))
     {
         # modifying?
-        my $col_type = uc $self->_table->get_column($name, 'TYPE');
+        my $col_type = uc $self->_table->get_column($name, 'type');
         if (scalar @_)
         {
             my $val = shift;
@@ -325,8 +333,9 @@ sub column #($$;$)
     {
         $name =~ s/^IS//;
         if (defined $self->_table->get_column($name) and
-            uc $self->_table->get_column($name, 'TYPE') eq 'BOOL')
+            uc $self->_table->get_column($name, 'type') eq 'BOOL')
         {
+            my $rc = $self->{CONFIG}{$name};
             $rc = $rc eq 'y';
             return $rc;
         }
@@ -439,7 +448,7 @@ sub DESTROY
     $self->save if $self;
 }
 
-=item C<table_name>
+=item C<SELECT>
 
 Shortcut to calling C<DB2::Table::SELECT>
 

@@ -2,7 +2,10 @@ package DB2::Table;
 
 use diagnostics;
 use strict;
+use warnings;
 use Carp;
+
+use DBI qw(:sql_types);
 
 our $VERSION = '0.20';
 
@@ -65,11 +68,11 @@ element (hash) in the array must contain certain keys, others are optional.
 
 =over 2
 
-=item C<COLUMN>
+=item C<column>
 
 Column Name (must be upper case)
 
-=item C<TYPE>
+=item C<type>
 
 SQL type
 
@@ -79,35 +82,36 @@ SQL type
 
 =over 2
 
-=item C<LENGTH>
+=item C<length>
 
 for CHAR, VARCHAR, etc.
 
-=item C<OPTS>
+=item C<opts>
 
 optional stuff - C<NOT NULL>, C<PRIMARY KEY>, etc.
+(Should use C<primary> rather than C<opts =E<gt> 'PRIMARY KEY'>.)
 
-=item C<DEFAULT>
+=item C<default>
 
 default value
 
-=item C<PRIMARY>
+=item C<primary>
 
 true for the primary key
 
-=item C<CONSTRAINT>
+=item C<constraint>
 
 stuff that is placed in the table create independantly
 
-=item C<FOREIGNKEY>
+=item C<foreignkey>
 
 For this column, will create a FOREIGN KEY statement.  The value here
 is used during creation of the table, and should begin with the foreign
 table name and include any "ON DELETE", "ON UPDATE", etc., portions. 
-This may change in the future where FOREIGNKEY will be itself another
+This may change in the future where C<foreignkey> will be itself another
 hashref with all these fields.
 
-=item C<GENERATEDIDENTITY>
+=item C<generatedidentity>
 
 For this column, will create as a generated identity.  If this is undef
 or the word 'default', the option will be C<(START WITH 0, INCREMENT BY 1, NO CACHE)>,
@@ -217,7 +221,7 @@ sub _find_create_row
     my $data_order = $self->_internal_data_order();
     foreach my $i (0..$#$data_order)
     {
-        my $column = $data_order->[$i]{COLUMN};
+        my $column = $data_order->[$i]{column};
         if (defined $row[$i])
         {
             ($params{$column} = $row[$i]) =~ s/\s*$//;
@@ -242,7 +246,7 @@ sub create_row
 
     $self->_find_create_row( map 
                             {
-                                $self->get_column($_, 'DEFAULT');
+                                $self->get_column($_, 'default');
                             } $self->column_list );
 }
 
@@ -435,6 +439,14 @@ sub _execute
     }
 }
 
+=item C<dbi_err>
+=item C<dbi_errstr>
+=item C<dbi_state>
+
+Shortcuts to get the DBI err, errstr, and state's, respectively.
+
+=cut
+
 sub dbi_err    { shift->{_dbi}{err} }
 sub dbi_errstr { shift->{_dbi}{errstr} }
 sub dbi_state  { shift->{_dbi}{state} }
@@ -482,12 +494,22 @@ sub _update_db
     # find all modified fields.
     my @sets;
     my @newVal;
+    my @bind;
 
-    for my $key (keys %{$obj->{modified}})
     {
-        next if $key eq $prim_key;
-        push @sets, "$key = ?";
-        push @newVal, $obj->{CONFIG}{$key};
+        my $i = 0;
+        for my $key (keys %{$obj->{modified}})
+        {
+            ++$i;
+            next if $key eq $prim_key;
+
+            push @sets, "$key = ?";
+            push @bind, [$obj->{CONFIG}{$key}];
+            if ($self->get_column($key,'type') =~ /LOB$/)
+            {
+                push @{$bind[$#bind]}, 'SQL_BLOB';
+            }
+        }
     }
 
     if (@sets)
@@ -498,8 +520,26 @@ sub _update_db
         my $sth = $self->_prepare($stmt, $prep_attr);
 
         #print STDERR "stmt = $stmt -- ", join @newVal, "\n";
+        for (my $i = 0; $i < @bind; ++$i)
+        {
+            if ($DB2::db::debug)
+            {
+                print "Binding ", $i + 1, " => ";
+                if (scalar @{$bind[$i]} > 1 and
+                    $bind[$i][1] == SQL_BLOB)
+                {
+                    print "[blob],", SQL_BLOB;
+                }
+                else
+                {
+                    print join(",",@{$bind[$i]});
+                }
+                print "\n";
+            }
+            $sth->bind_param($i + 1, @{$bind[$i]});
+        }
 
-        $self->_execute($sth, @newVal);
+        $self->_execute($sth); #, @newVal);
     }
     else
     {
@@ -529,10 +569,53 @@ sub _insert_into_db
             require Carp;
             Carp::cluck "$stmt";
         }
+        else
+        {
+            print "$stmt\n";
+        }
     }
 
     my $sth = $self->_prepare($stmt, $prep_attr);
-    my $rc = $self->_execute($sth, map { $obj->{CONFIG}{$_} } @cols);
+
+    my @bind;
+    {
+        my $i = 0;
+        for my $key (map { uc $_ } @cols)
+        {
+            ++$i;
+
+            push @bind, [$obj->{CONFIG}{$key}];
+            if ($self->get_column($key,'type') =~ /LOB$/)
+            {
+                my $x = $obj->{CONFIG}{$key};
+                #$bind[$#bind] = [\$x, {TYPE => SQL_BLOB}];
+                $bind[$#bind] = [$x, {TYPE => SQL_BLOB}];
+                #$bind[$#bind] = [$x,  SQL_BLOB];
+            }
+        }
+    }
+    #print STDERR "stmt = $stmt -- ", join @newVal, "\n";
+    for (my $i = 0; $i < @bind; ++$i)
+    {
+        if ($DB2::db::debug)
+        {
+            print "Binding ", $i + 1, " => ";
+            if (scalar @{$bind[$i]} > 1 and
+                $bind[$i][1] == SQL_BLOB)
+            {
+                print "[blob],", SQL_BLOB;
+            }
+            else
+            {
+                print join(",",@{$bind[$i]});
+            }
+            print "\n";
+        }
+        $sth->bind_param($i + 1, @{$bind[$i]});
+    }
+
+
+    my $rc = $self->_execute($sth);
     $sth->finish();
     $rc;
 }
@@ -899,7 +982,7 @@ sub column_list
     my $self = shift;
     if (not exists $self->{column_list})
     {
-        $self->{column_list} = [map { $_->{COLUMN} } @{$self->_internal_data_order}];
+        $self->{column_list} = [map { $_->{column} } @{$self->_internal_data_order}];
     }
     @{$self->{column_list}}
 }
@@ -918,7 +1001,7 @@ sub all_data
     {
         foreach my $h (@{$self->_internal_data_order()})
         {
-            $self->{ALL_DATA}{$h->{COLUMN}} = $h;
+            $self->{ALL_DATA}{uc $h->{column}} = $h;
         }
     }
     $self->{ALL_DATA}
@@ -927,7 +1010,7 @@ sub all_data
 =item C<get_column>
 
 Gets information about a column or its data.  First parameter is the
-column.  Second parameter is the key (NAME, TYPE, etc.).  If
+column.  Second parameter is the key (NAME, type, etc.).  If
 the key is not given, a hash ref is returned with all the data for
 this column.  If the key is given, only that scalar is returned.
 
@@ -937,7 +1020,7 @@ sub get_column
 {
     my $self = shift;
     my $column = uc shift;
-    my $data = uc shift;
+    my $data = lc shift;
     my $all_data = $self->all_data;
 
     return undef unless exists $all_data->{$column};
@@ -959,7 +1042,7 @@ the primary column, and then it will cache this for later calls.  If
 you want a table with no primary column, you must override this method
 to return undef.
 
-If no column has the PRIMARY attribute, then the last column is
+If no column has the primary attribute, then the last column is
 defaulted to be the primary column.
 
 =cut
@@ -972,14 +1055,14 @@ sub primaryColumn
     if (not exists $self->{PRIMARY})
     {
         # default to last one.
-        $self->{PRIMARY} = $self->_internal_data_order()->[$#{$self->_internal_data_order()}]{COLUMN};
+        $self->{PRIMARY} = $self->_internal_data_order()->[$#{$self->_internal_data_order()}]{column};
 
         my $data_order = $self->_internal_data_order();
         for (my $i = 0; $i < scalar @$data_order; ++$i)
         {
-            if (exists $data_order->[$i]{PRIMARY} and $data_order->[$i]{PRIMARY})
+            if (exists $data_order->[$i]{primary} and $data_order->[$i]{primary})
             {
-                $self->{PRIMARY} = $data_order->[$i]{COLUMN};
+                $self->{PRIMARY} = $data_order->[$i]{column};
                 last;
             }
         }
@@ -990,7 +1073,7 @@ sub primaryColumn
 =item C<generatedIdentityColumn>
 
 Determine the generated identity column, if any.  This is determined by
-looking for the string 'GENERATED ALWAYS AS IDENTITY' in the OPTS of
+looking for the string 'GENERATED ALWAYS AS IDENTITY' in the opts of
 the column.  Again, this is cached on first use.
 
 =cut
@@ -1003,13 +1086,13 @@ sub generatedIdentityColumn
         $self->{GENERATEDIDENTITY} = '';
         foreach my $col (@{$self->_internal_data_order()})
         {
-            if (exists $col->{GENERATEDIDENTITY} or
+            if (exists $col->{generatedidentity} or
                 (
-                 exists $col->{OPTS} and
-                 $col->{OPTS} =~ /GENERATED ALWAYS AS IDENTITY/i)
+                 exists $col->{opts} and
+                 $col->{opts} =~ /GENERATED ALWAYS AS IDENTITY/i)
                )
             {
-                $self->{GENERATEDIDENTITY} = $col->{COLUMN};
+                $self->{GENERATEDIDENTITY} = $col->{column};
                 last;
             }
         }
@@ -1017,7 +1100,11 @@ sub generatedIdentityColumn
     $self->{GENERATEDIDENTITY};
 }
 
-# Get the hash describing a column
+=item C<table_exists>
+
+Check if the table already exists.  Normally only called by create_table.
+
+=cut
 
 sub table_exists
 {
@@ -1056,28 +1143,35 @@ sub _create_table_column_definition
 {
     my $self = shift;
     my $column = shift;
-    my $tbl = $column->{COLUMN} . ' ';
-    $tbl   .= uc $column->{TYPE} eq 'BOOL' ? 'CHAR' : $column->{TYPE};
-    $tbl   .= ' (' . $column->{LENGTH} . ')' if exists $column->{LENGTH};
-    $tbl   .= ' ' . $column->{OPTS} if $column->{OPTS};
-    $tbl   .= ' NOT NULL' if $column->{PRIMARY} and (not $column->{OPTS} or $column->{OPTS} !~ /NOT NULL/);
-    $tbl   .= ' CHECK (' . $column->{COLUMN} . q[ in ('Y','N'))] if uc $column->{TYPE} eq 'BOOL';
-    if (exists $column->{GENERATEDIDENTITY})
+    my $tbl = $column->{column} . ' ';
+    $tbl   .= uc $column->{type} eq 'BOOL' ? 'CHAR' : $column->{type};
+    $tbl   .= ' (' . $column->{length} . ')' if exists $column->{length};
+    $tbl   .= ' ' . $column->{opts} if $column->{opts};
+    $tbl   .= ' NOT NULL' if $column->{primary} and (not $column->{opts} or $column->{opts} !~ /NOT NULL/);
+    $tbl   .= ' CHECK (' . $column->{column} . q[ in ('Y','N'))] if uc $column->{type} eq 'BOOL';
+    if (exists $column->{generatedidentity})
     {
         $tbl .= ' GENERATED ALWAYS AS IDENTITY ';
-        if (not defined $column->{GENERATEDIDENTITY} or 
-            $column->{GENERATEDIDENTITY} eq 'default')
+        if (not defined $column->{generatedidentity} or 
+            $column->{generatedidentity} eq 'default')
         {
             $tbl .= '(START WITH 0, INCREMENT BY 1, NO CACHE)';
         }
         else
         {
-            $tbl .= $column->{GENERATEDIDENTITY};
+            $tbl .= $column->{generatedidentity};
         }
     }
     $self->_replace_bangs($tbl);
 }
 # Create the table as given by data_order.
+
+=item C<create_table>
+
+Creates the current table.  Normally only called by L<DB2::db::create_table>.
+
+=cut
+
 sub create_table
 {
     my $self = shift;
@@ -1094,19 +1188,19 @@ sub create_table
         {
             my $column = $self->get_column($f);
             push @columns, $self->_create_table_column_definition($column);
-            if (exists $column->{CONSTRAINT})
+            if (exists $column->{constraint})
             {
                 push @constraints, map { 
                     my $x = 'CONSTRAINT ' . $_;
                     $self->_replace_bangs($x);
-                } ref($column->{CONSTRAINT}) eq 'ARRAY' ? @{$column->{CONSTRAINT}} : $column->{CONSTRAINT};
+                } ref($column->{constraint}) eq 'ARRAY' ? @{$column->{constraint}} : $column->{constraint};
             }
-            if (exists $column->{FOREIGNKEY})
+            if (exists $column->{foreignkey})
             {
                 push @foreign_keys, map {
-                    my $x = 'FOREIGN KEY (' . $column->{COLUMN} . ') REFERENCES ' . $_;
+                    my $x = 'FOREIGN KEY (' . $column->{column} . ') REFERENCES ' . $_;
                     $self->_replace_bangs($x);
-                } ref($column->{FOREIGNKEY}) eq 'ARRAY' ? @{$column->{FOREIGNKEY}} : $column->{FOREIGNKEY};
+                } ref($column->{foreignkey}) eq 'ARRAY' ? @{$column->{foreignkey}} : $column->{foreignkey};
             }
         }
         if ($self->primaryColumn)
@@ -1127,7 +1221,7 @@ sub create_table
     else
     { # existing table - anything need to be updated?
         my $alter = 'ALTER TABLE ' . $self->full_table_name;
-        my @add = grep { not exists $current_col_names{$_} } ($self->column_list);
+        my @add = grep { not exists $current_col_names{uc $_} } ($self->column_list);
 
         if (scalar @add)
         {

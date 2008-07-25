@@ -1,6 +1,7 @@
 #! perl -w
 
-use Test::More tests => 23;
+use Test::More tests => 24;
+use Test::NoWarnings;
 
 use FindBin;
 use File::Spec;
@@ -67,12 +68,13 @@ SKIP: {
     $row->prodname('One Dum Movie');
     $row->baseprice('1500');
     $row->save();
+    my $row_id = $row->prodid();
 
     # test statement attributes.
     eval "package My::Row; sub _prepare_attributes { { db2_txn_isolation => DBD::DB2::Constants::SQL_TXN_READ_UNCOMMITTED } }";
     ok(!$@, "Overriding _prepare_attributes");
-    my $obj = $prod_tbl->find_id('000011');
-    is($obj ? $obj->baseprice() : 0, 1500, 'Price check at cash 3');
+    my $obj = $prod_tbl->find_id($row_id);
+    is($obj ? $obj->baseprice() : 0, '1500.00', 'Price check at cash 3');
 
     $db->disconnect();
     # done testing!

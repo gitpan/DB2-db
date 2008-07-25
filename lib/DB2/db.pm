@@ -2,13 +2,14 @@ package DB2::db;
 
 use diagnostics;
 use strict;
+use warnings;
 use DBI;
 use Carp;
 
-our $VERSION = '0.20';
+our $VERSION = '0.21';
 
 my %localDB;
-our $debug = exists $ENV{DB2_db_debug};
+our $debug = exists $ENV{DB2_db_debug} ? $ENV{DB2_db_debug} + 0 : undef;
 
 =head1 NAME
 
@@ -60,7 +61,7 @@ DB2::db object.
 
 =cut
 
-BEGIN {$ENV{DB2INSTANCE} = 'db2ee' unless $ENV{DB2INSTANCE}};
+BEGIN {$ENV{DB2INSTANCE} = 'db2ee' unless exists $ENV{DB2INSTANCE}};
 
 =head1 FUNCTIONS
 
@@ -509,7 +510,7 @@ sub get_table_for_row_type
 }
 
 # default is "true", so we want to make sure we take that into consideration
-sub is_autocommit
+sub _is_autocommit
 {
     my $self = shift;
     my $connect_attr = $self->connect_attr;
@@ -551,7 +552,7 @@ sub disconnect
     my $self = shift;
     if ($self and $self->{dbh})
     {
-        $self->{dbh}->commit unless $self->is_autocommit;
+        $self->{dbh}->commit unless $self->_is_autocommit;
         $self->{dbh}->disconnect;
     }
     delete $self->{dbh};
@@ -641,7 +642,7 @@ originally planned.
 
 =head1 COPYRIGHT
 
-The DBD::db and associated modules are Copyright 2001-2003, Darin McBride.
+The DBD::db and associated modules are Copyright 2001-2005, Darin McBride.
 All rights reserved.
 
 You may distribute under the terms of either the GNU General Public
