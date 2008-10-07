@@ -6,10 +6,27 @@ use warnings;
 use DBI;
 use Carp;
 
-our $VERSION = '0.21';
+our $VERSION = '0.22';
 
 my %localDB;
 our $debug = exists $ENV{DB2_db_debug} ? $ENV{DB2_db_debug} + 0 : undef;
+
+sub _debug
+{
+    if ($debug)
+    {
+        if ($debug > 1)
+        {
+            require Carp;
+            local $Carp::CarpLevel = $Carp::CarpLevel + 1;
+            Carp::cluck(@_);
+        }
+        else
+        {
+            warn @_;
+        }
+    }
+}
 
 =head1 NAME
 
@@ -144,7 +161,7 @@ underlying DBD::DB2 object.  The default is to turn off AutoCommit
 =cut
 
 sub connect_attr {
-    { AutoCommit => 0 }
+    { AutoCommit => 0, PrintError => 1 }
 }
 
 =item C<setup_row_table_relationships>
@@ -243,11 +260,11 @@ sub add_row_table_relationship
 Same as C<add_row_table_relationship>, except that the first parameter is the
 table name, and the rest are options.  For example,
 
-    $self->add_table("tbl", ROW => "row::tbl");
+    $self->add_table("tbl", ROW => "tbl::row");
 
 is exactly the same as:
 
-    $self->add_row_table_relationship(TABLE => "tbl", ROW => "row::tbl");
+    $self->add_row_table_relationship(TABLE => "tbl", ROW => "tbl::row");
 
 Which means that if you follow conventions, you only need to specify:
 
@@ -384,30 +401,24 @@ sub get_row_type_for_table
     my $self = shift;
     my $table_type = shift;
     my $conv = $self->_get_tables_to_rows;
-    my $row_type = exists $conv->{$table_type} ? $conv->{$table_type} : undef;
+    my $row_type = exists $conv->{$table_type} ? $conv->{$table_type} : $table_type . 'R';
 
     # only try to grab it if it doesn't already exist.
     no strict 'refs';
-    unless ($row_type and exists ${"${row_type}::ISA"}[0])
+    unless (exists ${"${row_type}::ISA"}[0])
     {
         # If the row-type is given, try loading it.  Rather than using
         # eval STR to eval "require $row_pm", we do it ourselves.  This
         # is slightly faster (Benchmark shows about 20% faster).
-        if ($row_type)
-        {
-            (my $row_pm = $row_type) =~ s.::./.g;
-            $row_pm .= '.pm';
-            eval { require $row_pm };
-        }
-
+        (my $row_pm = $row_type . '.pm') =~ s.::./.g;
+        eval { require $row_pm; 1 } or do
         # if the row type doesn't exist, we'll just create it ourselves.
-        if (not $row_type or $@)
         {
             my $table = $self->get_table($table_type);
             my $base_type = $table->get_base_row_type();
 
-            eval "package $row_type; use base '$base_type'";
-            croak($@) if $@;
+            eval "package $row_type; use base '$base_type'; 1" or
+                croak($@);
         }
     }
     $row_type;
@@ -594,7 +605,10 @@ sub create_db
         {
             print "  ---> creating database\n";
         }
-        system("db2 create db " . $self->db_name());
+        my $opts = $self->create_db_opts();
+        $opts = defined $opts and length $opts ? " $opts" : "";
+
+        system("db2", "create db " . $self->db_name() . $opts);
     }
 
     my $dbh = $self->connection;
@@ -605,6 +619,19 @@ sub create_db
         $self->get_table($tbl)->create_table();
     }
     $self->disconnect;
+}
+
+=item C<create_db_opts>
+
+Override this to specify any create db options during database create.
+
+Default is to set the pagesize to 32 K.
+
+=cut
+
+sub create_db_opts
+{
+    'pagesize 32 K';
 }
 
 sub DESTROY
@@ -642,7 +669,7 @@ originally planned.
 
 =head1 COPYRIGHT
 
-The DBD::db and associated modules are Copyright 2001-2005, Darin McBride.
+The DB2::db and associated modules are Copyright 2001-2008, Darin McBride.
 All rights reserved.
 
 You may distribute under the terms of either the GNU General Public

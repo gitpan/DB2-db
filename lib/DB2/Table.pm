@@ -212,17 +212,22 @@ sub _connection
 sub _find_create_row
 {
     my $self = shift;
-    my $type = ref $self;
-    $type = $self->{db}->get_row_type_for_table($type);
+    my $type = $self->{db}->get_row_type_for_table(ref $self);
 
     my @row = @_;
 
     my %params = ( _db_object => $self->getDB );
+    if ($row[-1] and ref $row[-1] eq 'HASH')
+    {
+        %params = ( %params, %{$row[-1]} );
+        pop @row;
+    }
+
     my $data_order = $self->_internal_data_order();
     foreach my $i (0..$#$data_order)
     {
         my $column = $data_order->[$i]{column};
-        if (defined $row[$i])
+        if (defined $row[$i] and not exists $params{$column})
         {
             ($params{$column} = $row[$i]) =~ s/\s*$//;
         }
@@ -244,10 +249,12 @@ sub create_row
 {
     my $self = shift;
 
-    $self->_find_create_row( map 
-                            {
-                                $self->get_column($_, 'default');
-                            } $self->column_list );
+    $self->_find_create_row( map (
+                                  {
+                                      $self->get_column($_, 'default');
+                                  } $self->column_list
+                                 ),
+                                 @_ );
 }
 
 =item C<count>
@@ -409,14 +416,7 @@ sub _prepare
     my $stmt = shift;
     my $attr = shift;
 
-    if ($DB2::db::debug)
-    {
-        if ($DB2::db::debug + 0 > 1)
-        {
-            require Carp;
-            Carp::cluck "$stmt\n";
-        }
-    }
+    DB2::db::_debug("$stmt\n");
     my $sth = $self->_connection->prepare_cached($stmt, $attr);
 
     croak "Can't prepare [$stmt]: " . $self->_connection->errstr() unless $sth;
@@ -435,12 +435,17 @@ sub _execute
         $self->{_dbi}{err} = $sth->err;
         $self->{_dbi}{errstr} = $sth->errstr;
         $self->{_dbi}{state} = $sth->state;
+
+        DB2::db::_debug("Failed to execute $sth->{Statement}: ", $sth->errstr());
+
         undef;
     }
 }
 
 =item C<dbi_err>
+
 =item C<dbi_errstr>
+
 =item C<dbi_state>
 
 Shortcuts to get the DBI err, errstr, and state's, respectively.
@@ -469,7 +474,7 @@ sub _already_exists_in_db
         }
     }
 
-    if ($obj and not ref $obj)
+    if (defined $obj and not ref $obj)
     {
 
         #my $stmt = "SELECT COUNT(*) FROM " . $self->full_table_name .
@@ -497,10 +502,8 @@ sub _update_db
     my @bind;
 
     {
-        my $i = 0;
         for my $key (keys %{$obj->{modified}})
         {
-            ++$i;
             next if $key eq $prim_key;
 
             push @sets, "$key = ?";
@@ -516,11 +519,10 @@ sub _update_db
     {
         $stmt .= join(", ", @sets);
         $stmt .= " WHERE " . $self->primaryColumn . " IN ?";
-        push @newVal, $obj->{CONFIG}{$prim_key};
         my $sth = $self->_prepare($stmt, $prep_attr);
 
-        #print STDERR "stmt = $stmt -- ", join @newVal, "\n";
-        for (my $i = 0; $i < @bind; ++$i)
+        my $i = 0;
+        for (; $i < @bind; ++$i)
         {
             if ($DB2::db::debug)
             {
@@ -538,8 +540,12 @@ sub _update_db
             }
             $sth->bind_param($i + 1, @{$bind[$i]});
         }
+        $sth->bind_param($i + 1, $obj->{CONFIG}{$prim_key});
+        print "stmt = $stmt\n" if $DB2::db::debug;
 
         $self->_execute($sth); #, @newVal);
+        $sth->finish();
+        $self->commit();
     }
     else
     {
@@ -562,18 +568,7 @@ sub _insert_into_db
         join(', ', @cols) .
         ") VALUES(" . join(', ', map {'?'} @cols) . ")";
 
-    if ($DB2::db::debug)
-    {
-        if ($DB2::db::debug + 0 > 1)
-        {
-            require Carp;
-            Carp::cluck "$stmt";
-        }
-        else
-        {
-            print "$stmt\n";
-        }
-    }
+    DB2::db::_debug("$stmt\n");
 
     my $sth = $self->_prepare($stmt, $prep_attr);
 
@@ -607,7 +602,7 @@ sub _insert_into_db
             }
             else
             {
-                print join(",",@{$bind[$i]});
+                print join(",", map { defined $_ ? $_ : "<NULL>" } @{$bind[$i]});
             }
             print "\n";
         }
@@ -712,6 +707,7 @@ sub delete_id
             join(',', map { '?' } @$id) . ')';
         my $sth  = $self->_prepare($stmt, $prep_attr);
         $self->_execute($sth, @$id);
+        $sth->finish();
     }
 }
 
@@ -751,6 +747,8 @@ sub _delete_db
 
         my $sth = $self->_prepare($stmt, $prep_attr);
         $self->_execute($sth, $obj->column($primcol));
+        $sth->finish();
+        $self->commit();
     }
     else
     {
@@ -758,6 +756,8 @@ sub _delete_db
             join (' AND ', map { "$_ IN ?" } $self->column_list());
         my $sth = $self->_prepare($stmt, $prep_attr);
         $self->_execute($sth, map { $obj->column($_) } $self->column_list());
+        $sth->finish();
+        $self->commit();
     }
 }
 
@@ -774,6 +774,31 @@ Parameters:
 B<Optional>: Hashref of options.  Options may include:
 
 =over 4
+
+=item with
+
+This is the WITH clause tacked on to the front of the SELECT statement,
+if any.  (!!! replacement as per SELECT_join is done on this.)
+
+Or, this can be a hashref:
+
+    with => {
+        temp2 => {
+            fields => [ qw/empno firstnme/ ],
+            as => q[SELECT EMPNO, FIRSTNAME FROM !!!,!XYZ! WHERE ...],
+        },
+        temp1 => {
+            as => q[...],
+        },
+    },
+
+This will create a WITH clause like this:
+
+    WITH temp1 AS (...), temp2 (empno,firstname) AS (SELECT EMPNO, FIRSTNAME
+    FROM !!!,!XYZ! WHERE ...
+
+(except that !!! and !XYZ! will be expanded in the context of the current
+table) which will then go in the front of the rest of the SELECT statement.
 
 =item distinct
 
@@ -855,7 +880,7 @@ sub SELECT
         $table = $opts->{tables};
         if (ref $table and ref $table eq 'ARRAY')
         {
-            $table = join ' ', @$table;
+            $table = join ', ', @$table;
         }
         $self->_replace_bangs($table);
     }
@@ -863,15 +888,66 @@ sub SELECT
     # distinct?
     $select_modifier .= 'DISTINCT ' if $opts->{distinct};
 
-    my $stmt = 'SELECT ' . $select_modifier . $cols . ' FROM ' . $table;
+    my $stmt = '';
+    $stmt .= 'WITH ' . $self->_with($opts->{with}). ' ' if $opts->{with};
+    $stmt .= 'SELECT ' . $select_modifier . $cols . ' FROM ' . $table;
     $stmt .= ' WHERE ' . $self->_replace_bangs($where) if $where;
     $stmt .= ' FOR READ ONLY' if $opts->{forreadonly};
 
     my %prep_attr = exists $opts->{prepare_attributes} ? %{$opts->{prepare_attributes}} : ();
 
+
+
     my $sth = $self->_prepare($stmt, \%prep_attr);
-    $self->_execute($sth, @params);
+    $self->_execute($sth, @params) or die "Failed to execute $stmt: " . $self->dbi_errstr();
+
+    if ($opts->{as_hashes})
+    {
+        my @r;
+        while (my $h = $sth->fetchrow_hashref())
+        {
+            push @r, $h;
+        }
+        $sth->finish();
+        return wantarray ? @r : \@r;
+    }
+
+    if ($opts->{as_hash})
+    {
+        return $sth->fetchall_hashref($opts->{as_hash});
+    }
+
     return $sth->fetchall_arrayref();
+}
+
+sub _with
+{
+    my $self = shift;
+    my $with = shift;
+
+    if (ref $with)
+    {
+        my $substmt = join ', ', map {
+            my $fields = '';
+            if ($with->{$_}{fields})
+            {
+                $fields = $with->{$_}{fields};
+                if (ref $fields)
+                {
+                    $fields = join ',', @$fields;
+                }
+                $fields = " ($fields)"
+            }
+            my $as = $self->_replace_bangs($with->{$_}{as});
+            $as = " AS ($as)";
+
+            "$_$fields$as";
+        } sort keys %$with;
+    }
+    else
+    {
+        $with;
+    }
 }
 
 =item C<SELECT_distinct>
@@ -1144,11 +1220,14 @@ sub _create_table_column_definition
     my $self = shift;
     my $column = shift;
     my $tbl = $column->{column} . ' ';
-    $tbl   .= uc $column->{type} eq 'BOOL' ? 'CHAR' : $column->{type};
+    $tbl   .= uc $column->{type} =~ /(?:NULL)?BOOL/ ? 'CHAR' : $column->{type};
     $tbl   .= ' (' . $column->{length} . ')' if exists $column->{length};
     $tbl   .= ' ' . $column->{opts} if $column->{opts};
-    $tbl   .= ' NOT NULL' if $column->{primary} and (not $column->{opts} or $column->{opts} !~ /NOT NULL/);
+    $tbl   .= ' NOT NULL' if 
+        ($column->{primary} and uc $column->{type} ne 'NULLBOOL' and (not $column->{opts} or $column->{opts} !~ /NOT NULL/)) or
+            ($column->{type} eq 'BOOL' and $column->{opts} !~ /NOT NULL/);
     $tbl   .= ' CHECK (' . $column->{column} . q[ in ('Y','N'))] if uc $column->{type} eq 'BOOL';
+    $tbl   .= ' CHECK (' . $column->{column} . q[ in ('Y','N') OR ] . $column->{column} . q[ IS NULL)] if uc $column->{type} eq 'NULLBOOL';
     if (exists $column->{generatedidentity})
     {
         $tbl .= ' GENERATED ALWAYS AS IDENTITY ';

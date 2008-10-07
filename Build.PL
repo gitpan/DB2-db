@@ -7,6 +7,7 @@ my $build = Module::Build->new
      license => 'perl',
      requires => {
          DBD::DB2 => '0.78',
+         Test::NoWarnings => 0,
      },
     );
 

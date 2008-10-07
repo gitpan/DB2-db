@@ -107,6 +107,7 @@ sub save
             $sth->execute;
             my $id = $sth->fetchrow_array();
             $self->column($genColumn, $id);
+            $sth->finish();
         }
 
         $self->{ORIGVALUE} = { %{$self->{CONFIG}} };
@@ -141,6 +142,8 @@ Converts a DB2 timestamp column to a perl ("C") time value
 
 =cut
 
+my $timestamp_re = qr/(\d{4})-(\d\d)-(\d\d)[- ](\d\d)[.:](\d\d)[.:](\d\d)[.:](\d{6})/;
+
 sub timestamp_to_time
 {
     my $self = shift;
@@ -152,7 +155,7 @@ sub timestamp_to_time
     }
 
     my ($year, $mon, $mday, $hour, $min, $sec) =
-        ($ts =~ /(\d{4})-(\d\d)-(\d\d)[- ](\d\d)[.:](\d\d)[.:](\d\d)[.:](\d{6})/);
+        ($ts =~ $timestamp_re);
     $year -= 1900;
     $mon  -= 1;
     timegm($sec, $min, $hour, $mday, $mon, $year);
@@ -172,6 +175,12 @@ sub time_to_timestamp
     if (not defined $time)
     {
         return undef;
+    }
+
+    # if you pass in a timestamp, you'll get it back.
+    if ($time =~ $timestamp_re)
+    {
+        return $time;
     }
 
     my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = gmtime($time);
@@ -273,7 +282,7 @@ use.  This value will be validated before being used.
 
 =cut
 
-sub column #($$;$)
+sub column
 {
     my $self = shift;
     my $name = uc shift;
@@ -297,6 +306,10 @@ sub column #($$;$)
                 elsif ($col_type eq 'DATE')
                 {
                     $val = $self->time_to_date($val);
+                }
+                elsif ($col_type eq 'NULLBOOL')
+                {
+                    $val = $val ? 'Y' : defined $val ? 'N' : undef;
                 }
                 elsif ($col_type eq 'BOOL')
                 {
@@ -332,12 +345,22 @@ sub column #($$;$)
     elsif ($name =~ /^IS/)
     {
         $name =~ s/^IS//;
-        if (defined $self->_table->get_column($name) and
-            uc $self->_table->get_column($name, 'type') eq 'BOOL')
+        if (defined $self->_table->get_column($name))
         {
-            my $rc = $self->{CONFIG}{$name};
-            $rc = $rc eq 'y';
-            return $rc;
+            my $type = uc $self->_table->get_column($name, 'type');
+            if ($type eq 'BOOL')
+            {
+                my $rc = $self->{CONFIG}{$name};
+                $rc = $rc eq 'Y';
+                return $rc;
+            }
+            elsif ($type eq 'NULLBOOL')
+            {
+                my $rc = lc $self->{CONFIG}{$name};
+                return 
+                    not defined $rc ? undef :
+                    $rc eq 'Y' ? 1 : 0;
+            }
         }
     }
     croak "Can't do '$name' in $type";
@@ -442,6 +465,18 @@ sub count_where
     $self->_table->count_where(@_);
 }
 
+=item C<delete>
+
+Shortcut to calling C<DB2::Table::delete> for this ID
+
+=cut
+
+sub delete
+{
+    my $self = shift;
+    $self->_table->delete($self);
+}
+
 sub DESTROY
 {
     my $self = shift;
@@ -488,7 +523,11 @@ sub Dump
     my $self = shift;
     my @cols = $self->_table()->column_list();
 
-    ref $self . '=[' . join(',', map { "$_ => " . $self->column($_) } @cols) . ']';
+    ref ($self) . '={' . join(', ', map {
+                my $val = $self->column($_);
+                $val = defined $val ? "'$val'" : "<NULL>";
+                "$_ => " . $val;
+            } @cols) . '}';
 }
 
 =back

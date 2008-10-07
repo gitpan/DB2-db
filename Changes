@@ -80,3 +80,11 @@ Revision history for Perl extension DB2.
             (Hoping to eventually add a DB2::TableFromXML or something)
 	+ Added pod-coverage tests (CPANTS game)
 
+0.22
+	! Forgot to add Test::NoWarnings as requirement
+        ! Added call to finish statement handle for generated identities
+        + Added WITH statement support (though if you start using this,
+          you're probably more advanced than the author of this framework,
+          and may be better off just using DBI directly)
+
+

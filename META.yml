@@ -1,6 +1,6 @@
 ---
 name: DB2-db
-version: 0.21
+version: 0.22
 author:
   - 'Darin McBride <dmcbride@naboo.to.org>'
 abstract: Framework wrapper around DBD::DB2 for a specific database
@@ -9,6 +9,7 @@ resources:
   license: http://dev.perl.org/licenses/
 requires:
   DBD::DB2: 0.78
+  Test::NoWarnings: 0
 provides:
   DB2::Row:
     file: lib/DB2/Row.pm
@@ -18,7 +19,7 @@ provides:
     version: 0.20
   DB2::db:
     file: lib/DB2/db.pm
-    version: 0.21
+    version: 0.22
 generated_by: Module::Build version 0.2808
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.2.html
