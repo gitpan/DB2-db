@@ -7,7 +7,7 @@ use Carp;
 
 use DBI qw(:sql_types);
 
-our $VERSION = '0.20';
+our $VERSION = '0.23';
 
 =head1 NAME
 
@@ -74,7 +74,23 @@ Column Name (must be upper case)
 
 =item C<type>
 
-SQL type
+SQL type or one of:
+
+=over 4
+
+=item C<BOOL>
+
+This will be represented by a NOT NULL CHAR that is limited to 'Y' or 'N'.
+In perl, this will be auto-converted to perlish true/false values.  An
+undef will be treated as expected in perl: as false.
+
+=item C<NULLBOOL>
+
+As above, but NULLs will be permitted.  In this case, an 'N' in the database
+will become a false, but defined, value.  Only a NULL in the database will
+translate to undef in perl.
+
+=back
 
 =back
 
@@ -1096,7 +1112,7 @@ sub get_column
 {
     my $self = shift;
     my $column = uc shift;
-    my $data = lc shift;
+    my $data = @_ ? lc shift : undef;
     my $all_data = $self->all_data;
 
     return undef unless exists $all_data->{$column};

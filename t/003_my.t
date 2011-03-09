@@ -1,12 +1,11 @@
 #! perl -w
 
-use Test::More tests => 24;
+use Test::More tests => 21;
 use Test::NoWarnings;
 
 use FindBin;
 use File::Spec;
 use lib File::Spec->catdir($FindBin::Bin, File::Spec->updir, 'samples');
-#use lib File::Spec->catdir($FindBin::Bin, File::Spec->updir, 'blib', 'lib');
 
 my $instance;
 BEGIN { 
@@ -17,11 +16,11 @@ BEGIN {
 # first thing's first - is the instance set up properly?
 my $uid = getpwnam($instance);
 
-ok($uid, "Instance probably exists");
 can_ok('My::db', 'new');
 
 SKIP: {
     skip "No instance - can't do anything", 18 unless $uid;
+    skip "No local server", 18 if $ENV{SKIP_LOCAL_SERVER_TEST};
 
     my $db = My::db->new;
     ok($db, "create derived db object");
@@ -80,3 +79,4 @@ SKIP: {
     # done testing!
     system "db2 drop db " . $db->db_name;
 }
+

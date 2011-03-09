@@ -6,7 +6,7 @@ use warnings;
 use DBI;
 use Carp;
 
-our $VERSION = '0.22';
+our $VERSION = '0.23';
 
 my %localDB;
 our $debug = exists $ENV{DB2_db_debug} ? $ENV{DB2_db_debug} + 0 : undef;
@@ -606,7 +606,7 @@ sub create_db
             print "  ---> creating database\n";
         }
         my $opts = $self->create_db_opts();
-        $opts = defined $opts and length $opts ? " $opts" : "";
+        $opts = (defined $opts and length $opts) ? " $opts" : "";
 
         system("db2", "create db " . $self->db_name() . $opts);
     }

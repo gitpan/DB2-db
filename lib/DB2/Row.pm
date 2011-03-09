@@ -5,7 +5,7 @@ use Carp;
 use strict;
 use warnings;
 
-our $VERSION = '0.20';
+our $VERSION = '0.23';
 
 =head1 NAME
 
@@ -288,7 +288,7 @@ sub column
     my $name = uc shift;
     my $type = ref($self);
 
-    if (defined $self->_table->get_column($name))
+    if (scalar @_)
     {
         # modifying?
         my $col_type = uc $self->_table->get_column($name, 'type');
@@ -342,27 +342,27 @@ sub column
         #els
         return $rc;
     }
-    elsif ($name =~ /^IS/)
+
+    (my $name_mod = $name) =~ s/^IS_?//;
+    if (defined $self->_table->get_column($name_mod))
     {
-        $name =~ s/^IS//;
-        if (defined $self->_table->get_column($name))
+        my $type = uc $self->_table->get_column($name_mod, 'type');
+        my $rc = $self->{CONFIG}{$name_mod};
+
+        if ($type eq 'BOOL')
         {
-            my $type = uc $self->_table->get_column($name, 'type');
-            if ($type eq 'BOOL')
-            {
-                my $rc = $self->{CONFIG}{$name};
-                $rc = $rc eq 'Y';
-                return $rc;
-            }
-            elsif ($type eq 'NULLBOOL')
-            {
-                my $rc = lc $self->{CONFIG}{$name};
-                return 
-                    not defined $rc ? undef :
-                    $rc eq 'Y' ? 1 : 0;
-            }
+            $rc = $rc eq 'Y';
         }
+        elsif ($type eq 'NULLBOOL')
+        {
+            $rc =
+                not defined $rc ? undef :
+                uc $rc eq 'Y'   ? 1 : 0;
+        }
+
+        return $rc;
     }
+
     croak "Can't do '$name' in $type";
     undef;
 
@@ -389,7 +389,7 @@ sub as_hash
     my %ret = map {
         $_ => $self->column($_);
     } $self->_table->column_list();
-    not $force_scalar && wantarray ? %ret : \%ret;
+    (not $force_scalar && wantarray) ? %ret : \%ret;
 }
 
 =item C<find>
