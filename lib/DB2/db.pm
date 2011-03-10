@@ -5,8 +5,9 @@ use strict;
 use warnings;
 use DBI;
 use Carp;
+use List::MoreUtils qw(none);
 
-our $VERSION = '0.23';
+our $VERSION = '0.24';
 
 my %localDB;
 our $debug = exists $ENV{DB2_db_debug} ? $ENV{DB2_db_debug} + 0 : undef;
@@ -121,7 +122,40 @@ with this object.  Failure to override will result in a crash quickly.
 
 =cut
 
-sub db_name { confess 'need to override db_name' }
+sub db_name { 
+    my $self = shift;
+    my %dsn = $self->_dsn();
+    $dsn{database} || $dsn{db} || confess 'need to override db_name or dsn'
+}
+
+=item C<dsn>
+
+Override this returning a hash with keys for database, host, and port
+for constructing the dsn.  Useful if the database may not be local.
+
+=cut
+
+# used to normalise values
+sub _dsn
+{
+    my $self = shift;
+    my %dsn = $self->dsn();
+    if (keys %dsn)
+    {
+        %dsn = map {
+            lc $_ => $dsn{$_}
+        } keys %dsn;
+
+        # allow shortnames (as per odbc)
+        $dsn{database} ||= $dsn{db};
+        $dsn{hostname} ||= $dsn{host};
+
+        $dsn{protocol} ||= 'TCPIP';
+    }
+    %dsn;
+}
+
+sub dsn { () }
 
 =item C<user_name>
 
@@ -536,7 +570,22 @@ database, performing the connection if required.
 
 =cut
 
-sub _data_source { my $self = shift; "dbi:DB2:" . uc $self->db_name }
+sub _data_source {
+    my $self = shift;
+    my %dsn = $self->_dsn();
+    if (keys %dsn)
+    {
+        "dbi:DB2:" . join '; ', map { 
+            uc($_) . "=$dsn{$_}" 
+        } grep {
+            exists $dsn{$_}
+        } qw(database hostname port protocol uid pwd);
+    }
+    else
+    {
+        "dbi:DB2:" . uc ($dsn{database} || $dsn{db})
+    }
+}
 
 sub connection
 {
@@ -590,25 +639,31 @@ sub create_db
     my $self = shift;
     $self = $self->new unless ref $self;
 
-    unless ($self->{quiet})
-    {
-        print '*' x 50, "\n";
-        print ' ' x 15, "setting up ", $self->db_name, "\n";
-        print '*' x 50, "\n";
-    }
+    require Sys::Hostname;
 
-    # grep may not be the fastest, but we only do this once per database
-    # so it's relatively minor.
-    unless (scalar grep { $_ eq $self->_data_source() } DBI->data_sources('DB2'))
+    my %dsn = $self->_dsn();
+    if (not keys %dsn ||
+        $dsn{hostname} eq 'localhost' ||
+        $dsn{hostname} eq Sys::Hostname::hostname())
     {
         unless ($self->{quiet})
         {
-            print "  ---> creating database\n";
+            print '*' x 50, "\n";
+            print ' ' x 15, "setting up ", $self->db_name, "\n";
+            print '*' x 50, "\n";
         }
-        my $opts = $self->create_db_opts();
-        $opts = (defined $opts and length $opts) ? " $opts" : "";
 
-        system("db2", "create db " . $self->db_name() . $opts);
+        if (none { $_ eq $self->_data_source() } DBI->data_sources('DB2'))
+        {
+            unless ($self->{quiet})
+            {
+                print "  ---> creating database\n";
+            }
+            my $opts = $self->create_db_opts();
+            $opts = (defined $opts and length $opts) ? " $opts" : "";
+            
+            system("db2", "create db " . $self->db_name() . $opts);
+        }
     }
 
     my $dbh = $self->connection;

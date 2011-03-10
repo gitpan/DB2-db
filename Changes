@@ -91,3 +91,7 @@ Revision history for Perl extension DB2.
     ! DB2::Row::as_hash wasn't returning hashes properly
     ! DB2::db::create_db had a similar bug in precedence
     ! get_column was lc'ing something that wasn't always passed in - woops
+
+0.24
+    + Add DB2::db::dsn, allowing override to connect to remote databases
+      that are not currently cataloged locally

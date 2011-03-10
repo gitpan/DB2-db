@@ -19,10 +19,11 @@ provides:
     version: 0.23
   DB2::db:
     file: lib/DB2/db.pm
-    version: 0.23
+    version: 0.24
 requires:
   DBD::DB2: 0.78
+  Test::More: 0.88
   Test::NoWarnings: 0
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.23
+version: 0.24

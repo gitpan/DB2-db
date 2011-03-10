@@ -8,6 +8,7 @@ my $build = Module::Build->new
      requires => {
          DBD::DB2 => '0.78',
          Test::NoWarnings => 0,
+         Test::More => 0.88,
      },
     );
 
