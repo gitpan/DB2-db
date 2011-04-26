@@ -1240,8 +1240,15 @@ sub _create_table_column_definition
     $tbl   .= ' (' . $column->{length} . ')' if exists $column->{length};
     $tbl   .= ' ' . $column->{opts} if $column->{opts};
     $tbl   .= ' NOT NULL' if 
-        ($column->{primary} and uc $column->{type} ne 'NULLBOOL' and (not $column->{opts} or $column->{opts} !~ /NOT NULL/)) or
+        (
+         $column->{primary} or
+         uc $column->{type} ne 'NULLBOOL' and (not $column->{opts} or $column->{opts} !~ /NOT NULL/)) or
             ($column->{type} eq 'BOOL' and $column->{opts} !~ /NOT NULL/);
+    if (exists $column->{sqldefault})
+    {
+        $tbl .= ' WITH DEFAULT ' . $column->{sqldefault};
+    }
+
     $tbl   .= ' CHECK (' . $column->{column} . q[ in ('Y','N'))] if uc $column->{type} eq 'BOOL';
     $tbl   .= ' CHECK (' . $column->{column} . q[ in ('Y','N') OR ] . $column->{column} . q[ IS NULL)] if uc $column->{type} eq 'NULLBOOL';
     if (exists $column->{generatedidentity})
@@ -1257,6 +1264,7 @@ sub _create_table_column_definition
             $tbl .= $column->{generatedidentity};
         }
     }
+
     $self->_replace_bangs($tbl);
 }
 # Create the table as given by data_order.

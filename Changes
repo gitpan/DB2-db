@@ -95,3 +95,7 @@ Revision history for Perl extension DB2.
 0.24
     + Add DB2::db::dsn, allowing override to connect to remote databases
       that are not currently cataloged locally
+
+0.25
+    + Add sqldefault
+    ! Fix dsn - it seemed to break local connections?

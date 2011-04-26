@@ -6,8 +6,10 @@ use warnings;
 use DBI;
 use Carp;
 use List::MoreUtils qw(none);
+use User::pwent;
+use File::Spec;
 
-our $VERSION = '0.24';
+our $VERSION = '0.25';
 
 my %localDB;
 our $debug = exists $ENV{DB2_db_debug} ? $ENV{DB2_db_debug} + 0 : undef;
@@ -125,13 +127,18 @@ with this object.  Failure to override will result in a crash quickly.
 sub db_name { 
     my $self = shift;
     my %dsn = $self->_dsn();
-    $dsn{database} || $dsn{db} || confess 'need to override db_name or dsn'
+    $dsn{database} || confess 'need to override db_name or dsn'
 }
 
 =item C<dsn>
 
 Override this returning a hash with keys for database, host, and port
 for constructing the dsn.  Useful if the database may not be local.
+
+If you override dsn to just return C<db =E<gt> $db_name>, this should
+be equivalent to overriding db_name.  This can give more flexibility as
+to which db to use - allowing you to use a remote db for production, but
+a local db for development, for example.
 
 =cut
 
@@ -147,10 +154,10 @@ sub _dsn
         } keys %dsn;
 
         # allow shortnames (as per odbc)
-        $dsn{database} ||= $dsn{db};
-        $dsn{hostname} ||= $dsn{host};
+        $dsn{database} ||= $dsn{db}   if exists $dsn{db};
+        $dsn{hostname} ||= $dsn{host} if exists $dsn{host};
 
-        $dsn{protocol} ||= 'TCPIP';
+        $dsn{protocol} ||= 'TCPIP' if scalar keys %dsn > 1;
     }
     %dsn;
 }
@@ -573,7 +580,7 @@ database, performing the connection if required.
 sub _data_source {
     my $self = shift;
     my %dsn = $self->_dsn();
-    if (keys %dsn)
+    if (scalar keys %dsn > 1)
     {
         "dbi:DB2:" . join '; ', map { 
             uc($_) . "=$dsn{$_}" 
@@ -642,8 +649,9 @@ sub create_db
     require Sys::Hostname;
 
     my %dsn = $self->_dsn();
-    if (not keys %dsn ||
-        $dsn{hostname} eq 'localhost' ||
+    if (not keys %dsn or
+        scalar keys %dsn == 1 or
+        $dsn{hostname} eq 'localhost' or
         $dsn{hostname} eq Sys::Hostname::hostname())
     {
         unless ($self->{quiet})
@@ -661,7 +669,12 @@ sub create_db
             }
             my $opts = $self->create_db_opts();
             $opts = (defined $opts and length $opts) ? " $opts" : "";
-            
+
+            eval {
+                my $insthome = getpwnam($ENV{DB2INSTANCE})->dir();
+                $ENV{PATH} = File::Spec->catdir($insthome, qw(sqllib bin)) . ':' . $ENV{PATH};
+            };
+
             system("db2", "create db " . $self->db_name() . $opts);
         }
     }
